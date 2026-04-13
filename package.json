@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "test:db": "node test-connection.js",
-    "mongo": "node logistica/database/ejecutar-consultas.js"
+    "mongo": "node logistica/database/ejecutar-consultas.js",
+    "seed:mongo": "node logistica/database/semilla-datos.js",
+    "seed:mongo:reset": "node logistica/database/semilla-datos.js --limpiar"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
