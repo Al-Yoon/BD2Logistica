@@ -22,8 +22,11 @@ async function testMongo() {
   const client = new MongoClient(MONGODB_URI);
   try {
     await client.connect();
-    await client.db(MONGODB_DATABASE).command({ ping: 1 });
-    console.log("MongoDB: OK — base:", MONGODB_DATABASE);
+    const dbName = String(MONGODB_DATABASE || "logistica")
+      .trim()
+      .toLowerCase();
+    await client.db(dbName).command({ ping: 1 });
+    console.log("MongoDB: OK — base:", dbName);
   } finally {
     await client.close();
   }
