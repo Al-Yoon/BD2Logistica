@@ -3,7 +3,7 @@
 Proyecto de TP de Base de Datos 2 orientado a **logística**, con scripts en Node.js para:
 
 - Probar conexión a **MongoDB ATLAS** y/o **Neo4j AURA**
-- Ejecutar consultas en MongoDB
+- Ejecutar consultas en MongoDB y Neo4j (menú interactivo)
 
 ## Requisitos
 
@@ -37,7 +37,20 @@ npm install
 npm run test:db
 ```
 
-- **Ejecutar consultas MongoDB (set por defecto)**:
+- **Menú de consultas (MongoDB / Neo4j)**:
 
 ```bash
-npm run mongo
+npm run consultas
+```
+
+```bash
+node logistica/cli/ejecutar-consultas.js --todas
+node logistica/cli/ejecutar-consultas.js --todas-neo4j
+```
+
+## Estructura `logistica/`
+
+- `mongo/` — conexión (`mongo.js`) y consultas (`consultas.js`)
+- `neo4j/` — conexión (`neo4j.js`), consultas Cypher (`consultas.js`), datos de ejemplo en `neo4j/seed/`
+- `shared/` — utilidades de terminal compartidas (`terminal-ui.js`)
+- `cli/` — punto de entrada del menú (`ejecutar-consultas.js`)
