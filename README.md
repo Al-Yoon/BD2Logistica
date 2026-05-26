@@ -4,6 +4,7 @@ Proyecto de TP de Base de Datos 2 orientado a **logística**, con scripts en Nod
 
 - Probar conexión a **MongoDB ATLAS** y/o **Neo4j AURA**
 - Ejecutar consultas en MongoDB y Neo4j (menú interactivo)
+- (TP2) Operación en tiempo real con **Redis** + operaciones poliglotas (MongoDB + Neo4j + Redis)
 
 ## Requisitos
 
@@ -23,11 +24,16 @@ npm install
 
 - **MongoDB**
   - `MONGODB_URI`
-  - `MONGODB_DATABASE` (por defecto: `logistica`)
+  - `MONGODB_DATABASE`
 - **Neo4j**
   - `NEO4J_URI`
   - `NEO4J_USER`
   - `NEO4J_PASSWORD`
+- **Redis**
+  - `REDIS_URL` 
+  - `REDIS_USER`
+  - `REDIS_PASSWORD`
+  - `REDIS_KEY_PREFIX` 
 
 ## Comandos
 

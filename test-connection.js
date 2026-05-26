@@ -1,9 +1,17 @@
 import "dotenv/config";
 import { MongoClient } from "mongodb";
 import neo4j from "neo4j-driver";
+import { conectarRedis } from "./logistica/redis/redis.js";
 
-const { MONGODB_URI, MONGODB_DATABASE, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD } =
-  process.env;
+const {
+  MONGODB_URI,
+  MONGODB_DATABASE,
+  NEO4J_URI,
+  NEO4J_USER,
+  NEO4J_PASSWORD,
+  REDIS_URL,
+  REDIS_HOST,
+} = process.env;
 
 function missing(vars) {
   return vars.filter(([k, v]) => !v || String(v).trim() === "").map(([k]) => k);
@@ -55,6 +63,25 @@ async function testNeo4j() {
   }
 }
 
+async function testRedis() {
+  // Si no hay ni URL ni HOST configurado, asumimos que el TP todavía no cargó Redis.
+  const hasConfig =
+    (REDIS_URL && String(REDIS_URL).trim() !== "") ||
+    (REDIS_HOST && String(REDIS_HOST).trim() !== "");
+  if (!hasConfig) {
+    console.log("Redis: omitido (faltan REDIS_URL o REDIS_HOST en el entorno)");
+    return;
+  }
+
+  const { client, prefix } = await conectarRedis();
+  try {
+    const pong = await client.ping();
+    console.log("Redis: OK base:", prefix);
+  } finally {
+    await client.quit();
+  }
+}
+
 async function main() {
   console.log("Probando conexiones…\n");
   try {
@@ -66,6 +93,11 @@ async function main() {
     await testNeo4j();
   } catch (e) {
     console.error("Neo4j: error —", e.message ?? e);
+  }
+  try {
+    await testRedis();
+  } catch (e) {
+    console.error("Redis: error —", e.message ?? e);
   }
 }
 

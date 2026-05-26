@@ -4,11 +4,13 @@
   "type": "module",
   "scripts": {
     "test:db": "node test-connection.js",
+    "seed:redis": "node seed-redis.js",
     "consultas": "node logistica/cli/ejecutar-consultas.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
     "mongodb": "^6.12.0",
-    "neo4j-driver": "^5.28.1"
+    "neo4j-driver": "^5.28.1",
+    "redis": "^5.8.2"
   }
 }

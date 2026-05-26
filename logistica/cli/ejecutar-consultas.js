@@ -10,6 +10,21 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { conectarMongo } from "../mongo/mongo.js";
 import { conectarNeo4j, nombreBaseNeo4j } from "../neo4j/neo4j.js";
+import { conectarRedis } from "../redis/redis.js";
+import {
+  actualizarPosicionRepartidor,
+  tresRepartidoresMasCercanos,
+  distanciaRepartidorADestino,
+  repartidoresActivosEnRadio,
+  encolarEnvio,
+  asignarEnvioMayorPrioridad,
+  tamanioColaDespacho,
+  registrarMovimientoPaquetes,
+  depositoOcupacionCritica,
+  alertarSiSuperaUmbral,
+  listarPosicionesRepartidoresActivos,
+} from "../redis/operaciones.js";
+import { seedRedisDemo } from "../redis/seed-demo.js";
 import {
   historialPorCodigoSeguimiento,
   enviosDemoradosNoEntregados,
@@ -62,6 +77,7 @@ function lineasMenuPrincipal() {
   return [
     paint("1", ansi.yellow + ansi.bold) + "  MongoDB — consultas documentales (aggregate, find)",
     paint("2", ansi.yellow + ansi.bold) + "  Neo4j — consultas Cypher (grafos, rutas)",
+    paint("3", ansi.yellow + ansi.bold) + "  Redis — tiempo real (GEO/HASH/ZSET/STREAM)",
     paint("0", ansi.yellow + ansi.bold) + "  Salir",
   ];
 }
@@ -82,6 +98,142 @@ function tituloNeo4j() {
       paint("Neo4j — Grafo logístico", ansi.bold + ansi.white) +
       paint("  ═══", ansi.magenta + ansi.bold),
   );
+}
+
+function tituloRedis() {
+  console.log();
+  console.log(
+    paint("  ═══  ", ansi.yellow + ansi.bold) +
+      paint("Redis — Operación en tiempo real", ansi.bold + ansi.white) +
+      paint("  ═══", ansi.yellow + ansi.bold),
+  );
+}
+
+function lineasSubmenuRedis() {
+  return [
+    paint("1", ansi.yellow + ansi.bold) + "  3.1.a Actualizar posición de repartidor (GEOADD)",
+    paint("2", ansi.yellow + ansi.bold) + "  3.1.b 3 repartidores más cercanos a una coordenada (GEOSEARCH)",
+    paint("3", ansi.yellow + ansi.bold) + "  3.1.c Distancia repartidor ↔ destino (GEODIST)",
+    paint("4", ansi.yellow + ansi.bold) + "  3.1.d Activos en radio 5 km de una coordenada (GEOSEARCH)",
+    paint("5", ansi.yellow + ansi.bold) + "  3.2.a Encolar envío (ZADD)",
+    paint("6", ansi.yellow + ansi.bold) + "  3.2.b Asignar mayor prioridad al más cercano (ZSET+GEO+SETNX)",
+    paint("7", ansi.yellow + ansi.bold) + "  3.2.d Tamaño de cola por depósito (ZCARD)",
+    paint("8", ansi.yellow + ansi.bold) + "  3.3.a/b Movimiento de paquetes (INCR/DECR) + ocupación",
+    paint("9", ansi.yellow + ansi.bold) + "  3.3.c/d Detectar >85% + alertar en STREAM (XADD)",
+    paint("10", ansi.yellow + ansi.bold) + "  Listar posiciones (demo dashboard)",
+    paint("11", ansi.yellow + ansi.bold) + "  Seed demo en Redis (carga datos mínimos)",
+    paint("0", ansi.yellow + ansi.bold) + "  Volver al menú principal",
+  ];
+}
+
+async function bucleSubmenuRedis(redisClient, rl, redisPrefix) {
+  while (true) {
+    console.clear();
+    tituloRedis();
+    console.log(paint(`  ▸ Prefijo de keys: ${redisPrefix}`, ansi.dim));
+    console.log();
+    for (const line of lineasSubmenuRedis()) console.log("   " + line);
+    console.log();
+    const op = (await rl.question(paint("Opción: ", ansi.bold + ansi.green))).trim();
+
+    if (op === "0") return;
+
+    try {
+      switch (op) {
+        case "1": {
+          const id = (await rl.question("Repartidor ID (ej: R001): ")).trim();
+          const lon = (await rl.question("Longitud (ej: -58.3816): ")).trim();
+          const lat = (await rl.question("Latitud (ej: -34.6037): ")).trim();
+          await actualizarPosicionRepartidor(redisClient, id, Number(lon), Number(lat));
+          success("Posición actualizada.");
+          break;
+        }
+        case "2": {
+          const lon = Number((await rl.question("Longitud: ")).trim());
+          const lat = Number((await rl.question("Latitud: ")).trim());
+          section("3 más cercanos");
+          printObject(await tresRepartidoresMasCercanos(redisClient, lon, lat));
+          break;
+        }
+        case "3": {
+          const id = (await rl.question("Repartidor ID: ")).trim();
+          const lon = Number((await rl.question("Destino longitud: ")).trim());
+          const lat = Number((await rl.question("Destino latitud: ")).trim());
+          section("Distancia (km)");
+          printObject(await distanciaRepartidorADestino(redisClient, id, lon, lat, "km"));
+          break;
+        }
+        case "4": {
+          const lon = Number((await rl.question("Centro longitud: ")).trim());
+          const lat = Number((await rl.question("Centro latitud: ")).trim());
+          section("Activos en radio 5 km");
+          printObject(await repartidoresActivosEnRadio(redisClient, lon, lat, 5));
+          break;
+        }
+        case "5": {
+          const dep = (await rl.question("Depósito ID (ej: DEP01): ")).trim();
+          const envio = (await rl.question("Envío ID (ej: ENV-1001): ")).trim();
+          const score = Number((await rl.question("Prioridad score (número): ")).trim());
+          await encolarEnvio(redisClient, dep, envio, score);
+          success("Envío encolado.");
+          break;
+        }
+        case "6": {
+          const dep = (await rl.question("Depósito ID (ej: DEP01): ")).trim();
+          const zona = (await rl.question("Zona (ej: zona_norte): ")).trim();
+          const lon = Number((await rl.question("Entrega longitud: ")).trim());
+          const lat = Number((await rl.question("Entrega latitud: ")).trim());
+          section("Asignación");
+          const r = await asignarEnvioMayorPrioridad(redisClient, dep, zona, lon, lat);
+          if (!r) warn("No se pudo asignar (cola vacía o sin repartidores disponibles cercanos).");
+          else printObject(r);
+          break;
+        }
+        case "7": {
+          const dep = (await rl.question("Depósito ID: ")).trim();
+          const n = await tamanioColaDespacho(redisClient, dep);
+          success(`Tamaño cola ${dep}: ${n}`);
+          break;
+        }
+        case "8": {
+          const dep = (await rl.question("Depósito ID: ")).trim();
+          const delta = Number((await rl.question("Delta (+entra / -sale): ")).trim());
+          const capStr = (await rl.question("Capacidad máx (opcional): ")).trim();
+          const cap = capStr ? Number(capStr) : undefined;
+          section("Movimiento");
+          const stock = await registrarMovimientoPaquetes(redisClient, dep, delta, cap);
+          const st = await depositoOcupacionCritica(redisClient, dep, 0.85);
+          printObject({ stock_actual: stock, ...st });
+          break;
+        }
+        case "9": {
+          const dep = (await rl.question("Depósito ID: ")).trim();
+          section("Chequeo >85% + STREAM");
+          const alert = await alertarSiSuperaUmbral(redisClient, dep, 0.85);
+          if (!alert) success("OK: no supera umbral o falta capacidad.");
+          else printObject(alert);
+          break;
+        }
+        case "10": {
+          section("Posiciones activas (limit 50)");
+          printObject(await listarPosicionesRepartidoresActivos(redisClient, 50));
+          break;
+        }
+        case "11": {
+          await seedRedisDemo(redisClient);
+          success("Seed demo cargado.");
+          break;
+        }
+        default:
+          errorLine("Opción no reconocida.");
+      }
+    } catch (err) {
+      console.log();
+      errorLine(err?.message ?? String(err));
+    }
+
+    await pausa(rl);
+  }
 }
 
 function lineasSubmenuNeo4j() {
@@ -490,6 +642,10 @@ async function main() {
   let db = null;
   /** @type {import("neo4j-driver").Driver | null} */
   let neoDriver = null;
+  /** @type {import("redis").RedisClientType | null} */
+  let redisClient = null;
+  /** @type {string} */
+  let redisPrefix = "";
 
   try {
     if (soloTodasNeo) {
@@ -581,6 +737,26 @@ async function main() {
         continue;
       }
 
+      if (op === "3") {
+        try {
+          if (!redisClient) {
+            const r = await conectarRedis();
+            redisClient = r.client;
+            redisPrefix = r.prefix;
+          }
+          console.log();
+          console.log("  " + bannerLine(56));
+          success(`Redis — conectado · prefijo: ${redisPrefix}`);
+          console.log("  " + bannerLine(56));
+          await bucleSubmenuRedis(redisClient, rl, redisPrefix);
+        } catch (err) {
+          console.log();
+          errorLine(err?.message ?? String(err));
+          await pausa(rl);
+        }
+        continue;
+      }
+
       errorLine("Opción no reconocida.");
       await pausa(rl);
     }
@@ -588,6 +764,7 @@ async function main() {
     rl.close();
     if (mongoClient) await mongoClient.close();
     if (neoDriver) await neoDriver.close();
+    if (redisClient) await redisClient.quit();
   }
 }
 
