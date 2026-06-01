@@ -24,7 +24,7 @@ import {
   alertarSiSuperaUmbral,
   listarPosicionesRepartidoresActivos,
 } from "../redis/operaciones.js";
-import { seedRedisDemo } from "../redis/seed-demo.js";
+
 import {
   historialPorCodigoSeguimiento,
   enviosDemoradosNoEntregados,
@@ -121,7 +121,6 @@ function lineasSubmenuRedis() {
     paint("8", ansi.yellow + ansi.bold) + "  3.3.a/b Movimiento de paquetes (INCR/DECR) + ocupación",
     paint("9", ansi.yellow + ansi.bold) + "  3.3.c/d Detectar >85% + alertar en STREAM (XADD)",
     paint("10", ansi.yellow + ansi.bold) + "  Listar posiciones (demo dashboard)",
-    paint("11", ansi.yellow + ansi.bold) + "  Seed demo en Redis (carga datos mínimos)",
     paint("0", ansi.yellow + ansi.bold) + "  Volver al menú principal",
   ];
 }
@@ -217,11 +216,6 @@ async function bucleSubmenuRedis(redisClient, rl, redisPrefix) {
         case "10": {
           section("Posiciones activas (limit 50)");
           printObject(await listarPosicionesRepartidoresActivos(redisClient, 50));
-          break;
-        }
-        case "11": {
-          await seedRedisDemo(redisClient);
-          success("Seed demo cargado.");
           break;
         }
         default:

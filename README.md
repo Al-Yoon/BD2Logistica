@@ -4,7 +4,7 @@ Proyecto de TP de Base de Datos 2 orientado a **logística**, con scripts en Nod
 
 - Probar conexión a **MongoDB ATLAS** y/o **Neo4j AURA**
 - Ejecutar consultas en MongoDB y Neo4j (menú interactivo)
-- (TP2) Operación en tiempo real con **Redis** + operaciones poliglotas (MongoDB + Neo4j + Redis)
+- Operación en tiempo real con **Redis** + operaciones poliglotas (MongoDB + Neo4j + Redis)
 
 ## Requisitos
 
@@ -57,6 +57,6 @@ node logistica/cli/ejecutar-consultas.js --todas-neo4j
 ## Estructura `logistica/`
 
 - `mongo/` — conexión (`mongo.js`) y consultas (`consultas.js`)
-- `neo4j/` — conexión (`neo4j.js`), consultas Cypher (`consultas.js`), datos de ejemplo en `neo4j/seed/`
+- `neo4j/` — conexión (`neo4j.js`) y consultas Cypher (`consultas.js`)
 - `shared/` — utilidades de terminal compartidas (`terminal-ui.js`)
 - `cli/` — punto de entrada del menú (`ejecutar-consultas.js`)
