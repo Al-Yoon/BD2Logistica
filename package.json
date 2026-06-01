@@ -4,13 +4,17 @@
   "type": "module",
   "scripts": {
     "test:db": "node test-connection.js",
-    "mongo": "node logistica/database/ejecutar-consultas.js",
-    "seed:mongo": "node logistica/database/semilla-datos.js",
-    "seed:mongo:reset": "node logistica/database/semilla-datos.js --limpiar"
+    "seed:redis": "node seed-redis.js",
+    "seed:mongo": "node logistica/mongo/seed-mongo.js",
+    "seed:mongo:bulk": "node logistica/mongo/semilla-datos.js",
+    "seed:mongo:bulk:reset": "node logistica/mongo/semilla-datos.js --limpiar",
+    "seed:neo4j": "node logistica/neo4j/seed-neo4j.js",
+    "consultas": "node logistica/cli/ejecutar-consultas.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
     "mongodb": "^6.12.0",
-    "neo4j-driver": "^5.28.1"
+    "neo4j-driver": "^5.28.1",
+    "redis": "^5.8.2"
   }
 }
