@@ -34,7 +34,12 @@ export async function tresRepartidoresMasCercanos(client, lon, lat) {
   if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
     throw new Error("lon/lat inválidos");
   }
-  const members = await client.geoSearch(GEO_REPARTIDORES(), { longitude, latitude }, { BYRADIUS: 50, COUNT: 3, SORT: "ASC" });
+  const members = await client.geoSearch(
+    GEO_REPARTIDORES(),
+    { longitude, latitude },
+    { radius: 50, unit: "km" },
+    { SORT: "ASC", COUNT: 3 }
+  );
   return members;
 }
 
@@ -67,7 +72,12 @@ export async function repartidoresActivosEnRadio(client, lon, lat, radiusKm = 5)
   if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || !Number.isFinite(r) || r <= 0) {
     throw new Error("lon/lat/radio inválidos");
   }
-  return client.geoSearch(GEO_REPARTIDORES(), { longitude, latitude }, { BYRADIUS: r, COUNT: 1000, SORT: "ASC" });
+  return client.geoSearch(
+    GEO_REPARTIDORES(),
+    { longitude, latitude },
+    { radius: r, unit: "km" },
+    { SORT: "ASC", COUNT: 1000 }
+  );
 }
 
 /**
@@ -140,7 +150,8 @@ export async function asignarEnvioMayorPrioridad(client, depositoId, zona, lonEn
   const candidatos = await client.geoSearch(
     GEO_REPARTIDORES(),
     { longitude, latitude },
-    { BYRADIUS: 50, COUNT: 10, SORT: "ASC" },
+    { radius: 50, unit: "km" },
+    { SORT: "ASC", COUNT: 10 }
   );
 
   for (const rid of candidatos) {

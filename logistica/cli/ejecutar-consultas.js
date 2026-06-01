@@ -68,8 +68,8 @@ function tituloPrincipal() {
   console.log();
   console.log(
     paint("  ═══  ", ansi.cyan + ansi.bold) +
-      paint("TP Logística — Bases de datos", ansi.bold + ansi.white) +
-      paint("  ═══", ansi.cyan + ansi.bold),
+    paint("TP Logística — Bases de datos", ansi.bold + ansi.white) +
+    paint("  ═══", ansi.cyan + ansi.bold),
   );
 }
 
@@ -86,8 +86,8 @@ function tituloMongo() {
   console.log();
   console.log(
     paint("  ═══  ", ansi.cyan + ansi.bold) +
-      paint("MongoDB — Logística", ansi.bold + ansi.white) +
-      paint("  ═══", ansi.cyan + ansi.bold),
+    paint("MongoDB — Logística", ansi.bold + ansi.white) +
+    paint("  ═══", ansi.cyan + ansi.bold),
   );
 }
 
@@ -95,8 +95,8 @@ function tituloNeo4j() {
   console.log();
   console.log(
     paint("  ═══  ", ansi.magenta + ansi.bold) +
-      paint("Neo4j — Grafo logístico", ansi.bold + ansi.white) +
-      paint("  ═══", ansi.magenta + ansi.bold),
+    paint("Neo4j — Grafo logístico", ansi.bold + ansi.white) +
+    paint("  ═══", ansi.magenta + ansi.bold),
   );
 }
 
@@ -104,8 +104,8 @@ function tituloRedis() {
   console.log();
   console.log(
     paint("  ═══  ", ansi.yellow + ansi.bold) +
-      paint("Redis — Operación en tiempo real", ansi.bold + ansi.white) +
-      paint("  ═══", ansi.yellow + ansi.bold),
+    paint("Redis — Operación en tiempo real", ansi.bold + ansi.white) +
+    paint("  ═══", ansi.yellow + ansi.bold),
   );
 }
 
@@ -262,11 +262,10 @@ function lineasSubmenuConsultas() {
   ];
 }
 
-async function ejecutar4a(db, rl, codigoDef) {
-  let codigo = (await rl.question(`Código de seguimiento [${codigoDef ?? "-"}] `)).trim();
-  if (!codigo) codigo = codigoDef;
+async function ejecutar4a(db, rl) {
+  let codigo = (await rl.question("Código de seguimiento: ")).trim();
   if (!codigo) {
-    warn("No hay código por defecto en la base.");
+    warn("Debes ingresar un código de seguimiento.");
     return;
   }
   section(`Historial: ${codigo}`);
@@ -275,9 +274,25 @@ async function ejecutar4a(db, rl, codigoDef) {
   printObject(hist, { maxArrayLength: 50 });
 }
 
-async function ejecutar4b(db) {
-  section("Envíos demorados (>24 h) y no entregados");
-  const dem = await enviosDemoradosNoEntregados(db);
+async function ejecutar4b(db, rl) {
+  let fechaRef;
+  if (rl) {
+    const refStr = (await rl.question("Fecha de referencia para la demora (YYYY-MM-DD): ")).trim();
+    if (!refStr) {
+      warn("Debes ingresar una fecha de referencia.");
+      return;
+    }
+    fechaRef = new Date(refStr);
+    if (isNaN(fechaRef.getTime())) {
+      errorLine("Fecha inválida.");
+      return;
+    }
+  } else {
+    fechaRef = new Date();
+  }
+
+  section(`Envíos demorados (>24 h) respecto a: ${fechaRef.toISOString()}`);
+  const dem = await enviosDemoradosNoEntregados(db, fechaRef);
   success(`Total: ${dem.length}`);
   printObject(dem, { maxArrayLength: 12 });
 }
@@ -298,42 +313,71 @@ async function ejecutar4c(db, rl) {
       `  ${paint(String(i + 1), ansi.dim)}  ${c.nombre}  ${paint(c._id.toString(), ansi.gray)}`,
     );
   });
-  const pickStr = (await rl.question("\nNúmero de cliente [1]")).trim() || "1";
+  const pickStr = (await rl.question("\nSeleccione el número de cliente: ")).trim();
+  if (!pickStr) {
+    warn("Debes seleccionar un cliente.");
+    return;
+  }
   const idx = Number(pickStr) - 1;
   const empresa = empresas[idx];
   if (!empresa) {
     errorLine("Selección inválida.");
     return;
   }
-  const ref = await db.collection("envios").findOne(
-    { cliente_remitente_id: empresa._id },
-    { projection: { fecha_estimada_entrega: 1 } },
-  );
-  const d = ref?.fecha_estimada_entrega ?? new Date();
-  const defAnio = String(d.getUTCFullYear());
-  const defMes = String(d.getUTCMonth() + 1);
-  const anioStr = (await rl.question(`Año (UTC) [${defAnio}] `)).trim() || defAnio;
-  const mesStr = (await rl.question(`Mes 1-12 (UTC) [${defMes}] `)).trim() || defMes;
+
+  const anioStr = (await rl.question("Año (UTC): ")).trim();
+  const mesStr = (await rl.question("Mes 1-12 (UTC): ")).trim();
+  if (!anioStr || !mesStr) {
+    warn("Debes ingresar tanto el año como el mes.");
+    return;
+  }
+
   const anio = Number(anioStr);
   const mes = Number(mesStr);
   if (!Number.isFinite(anio) || !Number.isFinite(mes) || mes < 1 || mes > 12) {
     errorLine("Año o mes inválido.");
     return;
   }
+
+  const inicio = new Date(Date.UTC(anio, mes - 1, 1));
+  const fin = new Date(Date.UTC(anio, mes, 1));
+  console.log(paint(`\n  ▸ Rango de fechas (UTC) evaluado: desde ${inicio.toISOString()} hasta ${fin.toISOString()} (excluido)`, ansi.dim));
+
   section(`Reporte mensual: ${empresa.nombre}`);
   const rep = await reporteMensualClienteCorporativo(db, empresa._id, anio, mes);
   printObject(rep);
 }
 
 async function ejecutar4d(db, rl) {
-  const diasStr = (await rl.question("Ventana en días [30]: ")).trim() || "30";
+  const diasStr = (await rl.question("Ventana en días: ")).trim();
+  if (!diasStr) {
+    warn("Debes ingresar la cantidad de días.");
+    return;
+  }
   const dias = Number(diasStr);
   if (!Number.isFinite(dias) || dias < 1) {
     errorLine("Días inválidos.");
     return;
   }
-  section(`Mejor primer intento (últimos ${dias} días)`);
-  const top = await repartidoresMejorPrimerIntentoUltimosDias(db, dias);
+
+  const hastaStr = (await rl.question("Fecha de referencia final del rango (YYYY-MM-DD): ")).trim();
+  if (!hastaStr) {
+    warn("Debes ingresar una fecha de referencia.");
+    return;
+  }
+  const fechaHasta = new Date(hastaStr);
+  if (isNaN(fechaHasta.getTime())) {
+    errorLine("Fecha inválida.");
+    return;
+  }
+  // Ajustar al final del día UTC para incluir todo ese día
+  fechaHasta.setUTCHours(23, 59, 59, 999);
+
+  const desde = new Date(fechaHasta.getTime() - dias * 24 * 60 * 60 * 1000);
+  console.log(paint(`\n  ▸ Rango evaluado: desde ${desde.toISOString()} hasta ${fechaHasta.toISOString()}`, ansi.dim));
+
+  section(`Mejor primer intento (${dias} días hasta ${fechaHasta.toISOString().slice(0, 10)})`);
+  const top = await repartidoresMejorPrimerIntentoUltimosDias(db, dias, fechaHasta);
   const ids = top.map((t) => t._id).filter(Boolean);
   const nombres = await db
     .collection("repartidores")
@@ -352,7 +396,11 @@ async function ejecutar4d(db, rl) {
 }
 
 async function ejecutar4e(db, rl) {
-  const umStr = (await rl.question("Umbral de ocupación % [85]: ")).trim() || "85";
+  const umStr = (await rl.question("Umbral de ocupación % (0-100): ")).trim();
+  if (!umStr) {
+    warn("Debes ingresar el umbral de ocupación.");
+    return;
+  }
   const um = Number(umStr);
   if (!Number.isFinite(um) || um <= 0 || um > 100) {
     errorLine("Umbral inválido (use 1–100).");
@@ -364,11 +412,10 @@ async function ejecutar4e(db, rl) {
   printObject(dep);
 }
 
-async function ejecutarBuscarEnvio(db, rl, codigoDef) {
-  let codigo = (await rl.question(`Código [${codigoDef ?? "-"}]: `)).trim();
-  if (!codigo) codigo = codigoDef;
+async function ejecutarBuscarEnvio(db, rl) {
+  let codigo = (await rl.question("Código de seguimiento: ")).trim();
   if (!codigo) {
-    warn("Indicá un código de seguimiento.");
+    warn("Debes ingresar un código de seguimiento.");
     return;
   }
   section(`Buscar envío — ${codigo}`);
@@ -528,7 +575,7 @@ async function bucleSubmenuNeo4j(session, rl) {
     tituloNeo4j();
     console.log(
       paint("  ▸ Consultas Cypher", ansi.bold + ansi.magenta) +
-        paint(` · base: ${nombreBaseNeo4j()}`, ansi.dim),
+      paint(` · base: ${nombreBaseNeo4j()}`, ansi.dim),
     );
     console.log();
     for (const line of lineasSubmenuNeo4j()) {
@@ -580,7 +627,7 @@ async function bucleSubmenuConsultas(db, rl) {
     tituloMongo();
     console.log(
       paint("  ▸ Consultas", ansi.bold + ansi.magenta) +
-        paint(` · base: ${db.databaseName}`, ansi.dim),
+      paint(` · base: ${db.databaseName}`, ansi.dim),
     );
     console.log();
     for (const line of lineasSubmenuConsultas()) {
@@ -590,17 +637,16 @@ async function bucleSubmenuConsultas(db, rl) {
     hint(`Envíos en base: ${nEnv}`);
     console.log();
     const op = (await rl.question(paint("Opción: ", ansi.bold + ansi.green))).trim();
-    const codigoDef = await codigoPorDefecto(db);
 
     if (op === "0") return;
 
     try {
       switch (op) {
         case "1":
-          await ejecutar4a(db, rl, codigoDef);
+          await ejecutar4a(db, rl);
           break;
         case "2":
-          await ejecutar4b(db);
+          await ejecutar4b(db, rl);
           break;
         case "3":
           await ejecutar4c(db, rl);
@@ -612,11 +658,13 @@ async function bucleSubmenuConsultas(db, rl) {
           await ejecutar4e(db, rl);
           break;
         case "6":
-          await ejecutarBuscarEnvio(db, rl, codigoDef);
+          await ejecutarBuscarEnvio(db, rl);
           break;
-        case "7":
+        case "7": {
+          const codigoDef = await codigoPorDefecto(db);
           await ejecutarTodas(db, codigoDef);
           break;
+        }
         default:
           errorLine("Opción no reconocida.");
       }

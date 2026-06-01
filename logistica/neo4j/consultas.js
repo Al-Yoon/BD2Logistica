@@ -135,16 +135,18 @@ export async function depositosCriticos(session) {
 }
 
 /**
- * e) Optimización de rutas (ejemplo conceptual del PDF): punto de partida y lista de depósitos a visitar.
+ * e) Optimización de rutas (Traveling Salesperson / TSP): calcula el camino de menor
+ * tiempo de tránsito acumulado desde el depósito de inicio que pasa por todos los depósitos destino.
  */
 export async function optimizacionRutasConceptual(session, nombreInicio, nombresDestinos) {
   const result = await session.run(
     `
-    MATCH (inicio:Deposito {nombre: $inicio})
-    MATCH (destinos:Deposito)
-    WHERE destinos.nombre IN $destinos
-    WITH inicio, collect(destinos) AS puntos
-    RETURN inicio.nombre AS punto_partida, [p IN puntos | p.nombre] AS puntos_visitar
+    MATCH p = (inicio:Deposito {nombre: $inicio})-[:CONECTADO_A*]-(inicio)
+    WHERE all(d IN $destinos WHERE d IN [n IN nodes(p) | n.nombre])
+    WITH p, reduce(totalTime = 0, r IN relationships(p) | totalTime + coalesce(r.tiempo, 0)) AS tiempo_total
+    RETURN [n IN nodes(p) | n.nombre] AS ruta_optima, tiempo_total
+    ORDER BY tiempo_total ASC
+    LIMIT 1
     `,
     { inicio: nombreInicio, destinos: nombresDestinos },
   );

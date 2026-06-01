@@ -13,13 +13,18 @@ export async function historialPorCodigoSeguimiento(db, codigoSeguimiento) {
 }
 
 /** Envíos con más de 24 h de demora respecto a la fecha estimada y aún no entregados */
-export async function enviosDemoradosNoEntregados(db) {
-  const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+export async function enviosDemoradosNoEntregados(db, fechaReferencia = new Date()) {
+  const refDate = new Date(fechaReferencia);
   return db
     .collection("envios")
     .find({
       estado_actual: { $nin: ["entregado", "devuelto"] },
-      fecha_estimada_entrega: { $lt: hace24h },
+      $expr: {
+        $lt: [
+          { $dateAdd: { startDate: "$fecha_estimada_entrega", unit: "hour", amount: 24 } },
+          refDate
+        ]
+      }
     })
     .toArray();
 }
@@ -93,15 +98,18 @@ export async function reporteMensualClienteCorporativo(db, clienteId, anio, mes)
 }
 
 /**
- *Repartidores con mayor tasa de entrega exitosa en primer intento (últimos 30 días).
+ * Repartidores con mayor tasa de entrega exitosa en primer intento.
+ * @param {number} dias - Cantidad de días hacia atrás desde fechaHasta.
+ * @param {Date} [fechaHasta=new Date()] - Fecha de referencia del extremo superior del rango.
  */
-export async function repartidoresMejorPrimerIntentoUltimosDias(db, dias = 30) {
-  const desde = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+export async function repartidoresMejorPrimerIntentoUltimosDias(db, dias = 30, fechaHasta = new Date()) {
+  const ref = new Date(fechaHasta);
+  const desde = new Date(ref.getTime() - dias * 24 * 60 * 60 * 1000);
   const pipeline = [
     {
       $match: {
         estado_actual: "entregado",
-        fecha_entrega_real: { $gte: desde },
+        fecha_entrega_real: { $gte: desde, $lte: ref },
         repartidor_entrega_id: { $ne: null },
       },
     },
