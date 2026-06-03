@@ -238,3 +238,108 @@ export async function listarPosicionesRepartidoresActivos(client, limit = 200) {
   return picked.map((id, idx) => ({ repartidorId: id, pos: pos?.[idx] ?? null }));
 }
 
+/** IDs de depósitos con cola de despacho en Redis */
+export async function listarDepositosConCola(client) {
+  const prefixCola = k("cola", "despacho");
+  const keys = await client.keys(`${prefixCola}:*`);
+  const baseLen = prefixCola.length + 1;
+  return keys.map((key) => key.slice(baseLen)).filter(Boolean);
+}
+
+/** Tamaño de cola por cada depósito conocido */
+export async function tamaniosColasDespacho(client, depositoIds) {
+  const ids = depositoIds?.length ? depositoIds : await listarDepositosConCola(client);
+  const out = [];
+  for (const dep of ids) {
+    out.push({ depositoId: dep, tamano: await tamanioColaDespacho(client, dep) });
+  }
+  return out;
+}
+
+/** Depósitos con ocupación crítica (> umbral) entre los ids dados */
+export async function depositosConOcupacionCritica(client, depositoIds, umbral = 0.85) {
+  const ids = depositoIds?.length ? depositoIds : await listarDepositosConCola(client);
+  const criticos = [];
+  for (const dep of ids) {
+    const st = await depositoOcupacionCritica(client, dep, umbral);
+    if (st.critica) criticos.push(st);
+  }
+  return criticos;
+}
+
+/**
+ * Repartidores cercanos que están en el SET de disponibles de una zona.
+ */
+export async function repartidoresDisponiblesCercanos(client, zona, lon, lat, count = 3) {
+  const candidatos = await tresRepartidoresMasCercanos(client, lon, lat);
+  const disponibles = [];
+  for (const rid of candidatos) {
+    if (await client.sIsMember(SET_DISPONIBLES_ZONA(String(zona)), rid)) {
+      disponibles.push(rid);
+    }
+    if (disponibles.length >= count) break;
+  }
+  return disponibles;
+}
+
+/** Estado operativo (HASH) de un repartidor */
+export async function estadoRepartidor(client, repartidorId) {
+  return client.hGetAll(HASH_REPARTIDOR(String(repartidorId)));
+}
+
+/** Estado final de todos los repartidores activos */
+export async function estadoFinalRepartidoresActivos(client) {
+  const ids = await client.sMembers(SET_ACTIVOS());
+  const estados = [];
+  for (const id of ids) {
+    const hash = await estadoRepartidor(client, id);
+    const pos = (await client.geoPos(GEO_REPARTIDORES(), id))?.[0] ?? null;
+    estados.push({ repartidorId: id, estado: hash, posicion: pos });
+  }
+  return estados;
+}
+
+/** Elimina claves de reserva que ya expiraron (TTL) o huérfanas */
+export async function limpiarReservasExpiradas(client) {
+  const pattern = `${k("reserva")}*`;
+  const keys = await client.keys(pattern);
+  let eliminadas = 0;
+  for (const key of keys) {
+    const ttl = await client.ttl(key);
+    if (ttl === -2) eliminadas += 1;
+    else if (ttl === -1) {
+      await client.del(key);
+      eliminadas += 1;
+    }
+  }
+  return { revisadas: keys.length, eliminadas };
+}
+
+/** Métricas de colas de despacho al cierre de turno */
+export async function metricasColasDespacho(client, depositoIds) {
+  const ids = depositoIds?.length ? depositoIds : await listarDepositosConCola(client);
+  const colas = [];
+  let totalPendientes = 0;
+  for (const dep of ids) {
+    const tam = await tamanioColaDespacho(client, dep);
+    totalPendientes += tam;
+    colas.push({ depositoId: dep, pendientes: tam });
+  }
+  return { colas, total_pendientes: totalPendientes };
+}
+
+/** Vacía colas de depósitos indicados (solo las que quedaron en 0 pendientes tras el turno) */
+export async function vaciarColasCompletadas(client, depositoIds) {
+  const vaciadas = [];
+  for (const dep of depositoIds) {
+    const tam = await tamanioColaDespacho(client, dep);
+    if (tam === 0) {
+      await client.del(ZSET_COLA_DESPACHO(String(dep)));
+      vaciadas.push(dep);
+    }
+  }
+  return vaciadas;
+}
+
+export { HASH_REPARTIDOR, SET_DISPONIBLES_ZONA, ZSET_COLA_DESPACHO, RESERVA_REPARTIDOR };
+

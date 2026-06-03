@@ -1,7 +1,5 @@
 /**
- * Consultas Cypher del TP (Neo4j), sección del PDF — Modelo de Datos en Neo4j.
- * Etiquetas: Deposito, Envio. Relación entre depósitos: CONECTADO_A (propiedad opcional `tiempo`).
- *
+ * Consultas Cypher para la capa poliglota (TP sección 4).
  * @param {import("neo4j-driver").Session} session
  */
 import neo4j from "neo4j-driver";
@@ -62,21 +60,7 @@ function toPlain(v) {
   return v;
 }
 
-/** a) Ruta más corta (menor cantidad de saltos) entre dos depósitos */
-export async function rutaMasCorta(session, nombreOrigen, nombreDestino) {
-  const result = await session.run(
-    `
-    MATCH p = shortestPath(
-      (d1:Deposito {nombre: $origen})-[:CONECTADO_A*]-(d2:Deposito {nombre: $destino})
-    )
-    RETURN p, length(p) AS saltos
-    `,
-    { origen: nombreOrigen, destino: nombreDestino },
-  );
-  return recordsToPlain(result.records);
-}
-
-/** b) Ruta más rápida: suma mínima de `tiempo` en relaciones CONECTADO_A */
+/** Ruta más rápida entre dos depósitos (suma de `tiempo` en CONECTADO_A) */
 export async function rutaMasRapida(session, nombreOrigen, nombreDestino) {
   const result = await session.run(
     `
@@ -91,69 +75,101 @@ export async function rutaMasRapida(session, nombreOrigen, nombreDestino) {
   return recordsToPlain(result.records);
 }
 
-/** c-1) Envíos no entregados que pasan por un depósito (impacto si el depósito cae) */
-export async function enviosAfectadosDeposito(session, nombreDeposito) {
+/**
+ * Rutas alternativas desde un depósito saturado hacia otro con menor carga (evita el nodo caído/saturado).
+ */
+export async function rutasAlternativasDesdeDeposito(
+  session,
+  nombreDepositoSaturado,
+  nombreDestinoAlternativo,
+  limite = 3,
+) {
   const result = await session.run(
     `
-    MATCH (d:Deposito {nombre: $nombre})<-[:PASA_POR]-(e:Envio)
-    WHERE e.estado_actual <> 'entregado'
-    RETURN e.codigo AS envio_afectado, e.estado_actual AS estado_actual
+    MATCH p = (d1:Deposito {nombre: $origen})-[:CONECTADO_A*]-(d2:Deposito {nombre: $destino})
+    WHERE d1 <> d2
+    WITH p, reduce(t = 0, r IN relationships(p) | t + coalesce(r.tiempo, 0)) AS tiempo_total
+    RETURN p, tiempo_total
+    ORDER BY tiempo_total ASC
+    LIMIT $limite
     `,
-    { nombre: nombreDeposito },
+    {
+      origen: nombreDepositoSaturado,
+      destino: nombreDestinoAlternativo,
+      limite: neo4j.int(limite),
+    },
   );
   return recordsToPlain(result.records);
 }
 
-/** c-2) Rutas alternativas entre dos depósitos que no pasan por un depósito intermedio dado */
-export async function rutasAlternativasSinDeposito(
+/**
+ * Depósito alternativo más próximo en el grafo (excluye el inoperativo).
+ */
+export async function depositoAlternativoMasCercano(session, nombreDepositoInoperativo, limite = 5) {
+  const result = await session.run(
+    `
+    MATCH (caido:Deposito {nombre: $caido})
+    MATCH (alt:Deposito)
+    WHERE alt.nombre <> $caido
+    MATCH p = shortestPath((caido)-[:CONECTADO_A*]-(alt))
+    WITH alt, p, length(p) AS saltos
+    RETURN alt.nombre AS deposito_alternativo, saltos, p
+    ORDER BY saltos ASC
+    LIMIT $limite
+    `,
+    { caido: nombreDepositoInoperativo, limite: neo4j.int(limite) },
+  );
+  return recordsToPlain(result.records);
+}
+
+/** Ruta desde depósito origen hasta destino evitando un depósito intermedio */
+export async function rutaRedistribucionEnvio(
   session,
   nombreOrigen,
-  nombreDestino,
+  nombreDestinoAlternativo,
   nombreEvitar,
-  limite = 5,
 ) {
   const result = await session.run(
     `
     MATCH p = (d1:Deposito {nombre: $origen})-[:CONECTADO_A*]-(d2:Deposito {nombre: $destino})
     WHERE NOT any(n IN nodes(p) WHERE n.nombre = $evitar)
-    RETURN p
-    LIMIT $limite
+    WITH p, reduce(t = 0, r IN relationships(p) | t + coalesce(r.tiempo, 0)) AS tiempo_total
+    RETURN p, tiempo_total
+    ORDER BY tiempo_total ASC
+    LIMIT 1
     `,
-    { origen: nombreOrigen, destino: nombreDestino, evitar: nombreEvitar, limite: neo4j.int(limite) },
+    { origen: nombreOrigen, destino: nombreDestinoAlternativo, evitar: nombreEvitar },
   );
-  return recordsToPlain(result.records);
-}
-
-/** d) Depósitos con mayor grado (cantidad de aristas CONECTADO_A) */
-export async function depositosCriticos(session) {
-  const result = await session.run(`
-    MATCH (d:Deposito)
-    RETURN d.nombre AS deposito, COUNT { (d)-[:CONECTADO_A]-() } AS grado_conexiones
-    ORDER BY grado_conexiones DESC
-  `);
   return recordsToPlain(result.records);
 }
 
 /**
- * e) Optimización de rutas (Traveling Salesperson / TSP): calcula el camino de menor
- * tiempo de tránsito acumulado desde el depósito de inicio que pasa por todos los depósitos destino.
+ * Actualiza el peso `tiempo` de aristas CONECTADO_A según tiempos reales observados.
+ * @param {{ origen: string, destino: string, tiempoMinutos: number }[]} observaciones
  */
-export async function optimizacionRutasConceptual(session, nombreInicio, nombresDestinos) {
-  const result = await session.run(
-    `
-    MATCH p = (inicio:Deposito {nombre: $inicio})-[:CONECTADO_A*]-(inicio)
-    WHERE all(d IN $destinos WHERE d IN [n IN nodes(p) | n.nombre])
-    WITH p, reduce(totalTime = 0, r IN relationships(p) | totalTime + coalesce(r.tiempo, 0)) AS tiempo_total
-    RETURN [n IN nodes(p) | n.nombre] AS ruta_optima, tiempo_total
-    ORDER BY tiempo_total ASC
-    LIMIT 1
-    `,
-    { inicio: nombreInicio, destinos: nombresDestinos },
-  );
-  return recordsToPlain(result.records);
+export async function actualizarPesosRutasPorTiempos(session, observaciones) {
+  const actualizados = [];
+  for (const obs of observaciones) {
+    const origen = String(obs.origen ?? obs.deposito_origen ?? "");
+    const destino = String(obs.destino ?? obs.deposito_destino ?? "");
+    const tiempo = Number(obs.tiempoMinutos ?? obs.tiempo_transito_minutos);
+    if (!origen || !destino || !Number.isFinite(tiempo)) continue;
+    const result = await session.run(
+      `
+      MATCH (a:Deposito {nombre: $origen})-[r:CONECTADO_A]->(b:Deposito {nombre: $destino})
+      SET r.tiempo = $tiempo
+      RETURN a.nombre AS origen, b.nombre AS destino, r.tiempo AS tiempo
+      `,
+      { origen, destino, tiempo },
+    );
+    if (result.records.length) {
+      actualizados.push(recordsToPlain(result.records)[0]);
+    }
+  }
+  return actualizados;
 }
 
-/** Lista nombres de depósitos (útil en el menú) */
+/** Lista nombres de depósitos en el grafo */
 export async function listarNombresDepositos(session) {
   const result = await session.run(`
     MATCH (d:Deposito)
