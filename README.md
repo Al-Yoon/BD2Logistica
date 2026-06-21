@@ -2,8 +2,10 @@
 
 Proyecto de TP de Base de Datos 2 orientado a **logística**, con scripts en Node.js para:
 
-- Probar conexión a **MongoDB Atlas**, **Neo4j Aura** y **Redis**
+- Probar conexión a **MongoDB Atlas**, **Neo4j Aura** y **Redis Cloud**
 - Ejecutar las **5 operaciones de persistencia poliglota** (MongoDB + Neo4j + Redis)
+- Ejecutar las **consultas de la 1.ª entrega** (MongoDB + Neo4j)
+- Cargar **datos de prueba** con volúmenes del TP (`npm run seed`)
 
 ## Requisitos
 
@@ -33,10 +35,35 @@ npm install
 npm run test:db
 ```
 
+**Cargar datos de prueba (dataset demo coherente entre los tres motores):**
+
+```bash
+npm run seed
+```
+
 **Menú poliglota (interactivo):**
 
 ```bash
 npm run consultas
+```
+
+**Consultas TP1 (1.ª entrega):**
+
+```bash
+npm run consultas:tp1
+# Ejemplo no interactivo:
+node logistica/cli/consultas-tp1.js --mongo --consulta a --codigo TRK-TEST-001
+node logistica/cli/consultas-tp1.js --neo4j --consulta d
+```
+
+**Operaciones políglotas por CLI:**
+
+```bash
+node logistica/cli/ejecutar-consultas.js --op 1
+node logistica/cli/ejecutar-consultas.js --op 2 --codigo TRK-TEST-001 --zona zona_norte
+node logistica/cli/ejecutar-consultas.js --op 3 --codigo TRK-TEST-002
+node logistica/cli/ejecutar-consultas.js --op 4 --deposito "Depósito Central Pompeya"
+node logistica/cli/ejecutar-consultas.js --op 5 --horas 8
 ```
 
 ## Operaciones políglotas (TP sección 4.2)
@@ -49,17 +76,22 @@ npm run consultas
 | OP-4 | Redistribución ante depósito inoperativo | MongoDB + Neo4j |
 | OP-5 | Cierre de turno y consolidación de métricas | MongoDB + Neo4j + Redis |
 
+## Informes
+
+- [1.ª entrega](docs/informe-entrega-1.md) — MongoDB, Neo4j, consultas TP1
+- [2.ª entrega](docs/informe-entrega-2.md) — Redis, capa poliglota, OP-1…OP-5
+
 ## Estructura `logistica/`
 
-- `mongo/` — conexión y consultas para la capa poliglota
-- `neo4j/` — consultas Cypher para la capa poliglota
-- `redis/` — operaciones en tiempo real (GEO, ZSET, SETNX, etc.)
+- `mongo/` — conexión y consultas MongoDB
+- `neo4j/` — consultas Cypher
+- `redis/` — operaciones en tiempo real (GEO, ZSET, SETNX, STREAM)
 - `poliglota/` — orquestación OP-1 … OP-5
-- `cli/` — menú interactivo (`ejecutar-consultas.js`)
+- `cli/` — menús interactivos
 - `shared/` — utilidades de terminal
 
 ## Datos esperados
 
-Las operaciones asumen el modelo de la 1.ª entrega (colecciones `envios`, `eventos_tracking`, `clientes`, `depositos`, grafo `Deposito`/`CONECTADO_A` en Neo4j) y datos operativos cargados en Redis (posiciones GEO, SET `disponibles:zona_*`, colas `cola:despacho:*`).
+`npm run seed` carga el dataset demo (`TRK-TEST-*`, 5 clientes, 5 repartidores, 5 depósitos) en los servicios configurados en `.env`.
 
-Para OP-2 y OP-3, el envío debe tener coordenadas en `direccion_entrega` (o campos equivalentes documentados en `mongo/consultas.js` → `coordenadasEntrega`).
+Para OP-2 y OP-3, el envío debe tener coordenadas en `direccion_entrega.coordenadas`.

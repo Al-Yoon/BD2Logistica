@@ -38,18 +38,18 @@ function tituloPrincipal() {
   console.log();
   console.log(
     paint("  ═══  ", ansi.cyan + ansi.bold) +
-      paint("TP Logística — Persistencia poliglota", ansi.bold + ansi.white) +
-      paint("  ═══", ansi.cyan + ansi.bold),
+    paint("TP Logística — Persistencia poliglota", ansi.bold + ansi.white) +
+    paint("  ═══", ansi.cyan + ansi.bold),
   );
 }
 
 function lineasMenuPoliglota() {
   return [
-    paint("1", ansi.yellow + ansi.bold) + "  OP-1  Dashboard operativo en tiempo real (*)",
-    paint("2", ansi.yellow + ansi.bold) + "  OP-2  Asignación inteligente de envío (*)",
+    paint("1", ansi.yellow + ansi.bold) + "  OP-1  Dashboard operativo en tiempo real",
+    paint("2", ansi.yellow + ansi.bold) + "  OP-2  Asignación inteligente de envío",
     paint("3", ansi.yellow + ansi.bold) + "  OP-3  Seguimiento en tiempo real de un envío",
     paint("4", ansi.yellow + ansi.bold) + "  OP-4  Redistribución ante depósito inoperativo",
-    paint("5", ansi.yellow + ansi.bold) + "  OP-5  Cierre de turno y consolidación (*)",
+    paint("5", ansi.yellow + ansi.bold) + "  OP-5  Cierre de turno y consolidación",
     paint("6", ansi.yellow + ansi.bold) + "  Liberar reserva Redis de un repartidor",
     paint("0", ansi.yellow + ansi.bold) + "  Salir",
   ];
@@ -83,7 +83,7 @@ async function ejecutarOpDesdeCli(op, ctx, rl) {
     }
     case "2": {
       const codigo = (await rl.question("Código de seguimiento del envío: ")).trim();
-      const zona = (await rl.question("Zona Redis (ej: zona_norte): ")).trim() || "zona_norte";
+      const zona = (await rl.question("Zona Redis: ")).trim() || "zona_norte";
       section("OP-2 — Asignación inteligente");
       printObject(await asignacionInteligenteEnvio(ctx, { codigoSeguimiento: codigo, zona }));
       break;
@@ -101,13 +101,15 @@ async function ejecutarOpDesdeCli(op, ctx, rl) {
       break;
     }
     case "5": {
-      const horasStr = (await rl.question("Horas del turno [8]: ")).trim() || "8";
+      const horasStr = (await rl.question("Horas del turno: ")).trim();
+      const horasVal = Number(horasStr);
+      const horas = (horasStr && !isNaN(horasVal) && horasVal > 0) ? horasVal : 8;
       section("OP-5 — Cierre de turno");
-      printObject(await cierreTurnoConsolidacion(ctx, { horasTurno: Number(horasStr) }));
+      printObject(await cierreTurnoConsolidacion(ctx, { horasTurno: horas }));
       break;
     }
     case "6": {
-      const rid = (await rl.question("ID repartidor (ej: R001): ")).trim();
+      const rid = (await rl.question("ID repartidor: ")).trim();
       await liberarReserva(ctx.redis, rid);
       success(`Reserva liberada para ${rid}`);
       break;
@@ -192,7 +194,7 @@ async function main() {
       tituloPrincipal();
       console.log(
         paint("  MongoDB + Neo4j + Redis", ansi.dim) +
-          paint(" · operaciones de negocio integradas", ansi.dim),
+        paint(" · operaciones de negocio integradas", ansi.dim),
       );
       console.log();
       for (const line of lineasMenuPoliglota()) {

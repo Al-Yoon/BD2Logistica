@@ -172,7 +172,17 @@ export async function asignarEnvioMayorPrioridad(client, depositoId, zona, lonEn
  * 3.2.c — Liberar reserva temporal (DEL)
  */
 export async function liberarReserva(client, repartidorId) {
-  await client.del(RESERVA_REPARTIDOR(String(repartidorId)));
+  const rid = String(repartidorId);
+  await client.del(RESERVA_REPARTIDOR(rid));
+  
+  const rep = await client.hGetAll(HASH_REPARTIDOR(rid));
+  if (rep && rep.zona) {
+    const tx = client.multi();
+    tx.hSet(HASH_REPARTIDOR(rid), { estado: "disponible" });
+    tx.hDel(HASH_REPARTIDOR(rid), "envio_asignado");
+    tx.sAdd(SET_DISPONIBLES_ZONA(rep.zona), rid);
+    await tx.exec();
+  }
 }
 
 /**
@@ -284,7 +294,8 @@ export async function repartidoresDisponiblesCercanos(client, zona, lon, lat, co
 
 /** Estado operativo (HASH) de un repartidor */
 export async function estadoRepartidor(client, repartidorId) {
-  return client.hGetAll(HASH_REPARTIDOR(String(repartidorId)));
+  const hash = await client.hGetAll(HASH_REPARTIDOR(String(repartidorId)));
+  return { ...hash };
 }
 
 /** Estado final de todos los repartidores activos */

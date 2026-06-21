@@ -305,3 +305,216 @@ export function repartidorAsignadoId(envio) {
     null;
   return id != null ? String(id) : null;
 }
+
+/**
+ * TP1-4c: reporte mensual de un cliente corporativo.
+ * @param {string|import("mongodb").ObjectId} clienteId
+ */
+export async function reporteMensualClienteCorporativo(db, clienteId, anio, mes) {
+  const inicio = new Date(anio, mes - 1, 1);
+  const fin = new Date(anio, mes, 1);
+
+  const pipeline = [
+    {
+      $match: {
+        cliente_remitente_id: clienteId,
+        fecha_creacion: { $gte: inicio, $lt: fin },
+      },
+    },
+    {
+      $lookup: {
+        from: "eventos_tracking",
+        localField: "codigo_seguimiento",
+        foreignField: "codigo_seguimiento",
+        as: "eventos",
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        total_envios: { $sum: 1 },
+        entregados: {
+          $sum: { $cond: [{ $eq: ["$estado_actual", "entregado"] }, 1, 0] },
+        },
+        en_termino: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$estado_actual", "entregado"] },
+                  { $lte: ["$fecha_entrega_real", "$fecha_estimada_entrega"] },
+                ],
+              },
+              1,
+              0,
+            ],
+          },
+        },
+        incidencias: {
+          $sum: {
+            $cond: [
+              {
+                $in: [
+                  "$estado_actual",
+                  ["devuelto", "rechazado", "incidencia", "demorado"],
+                ],
+              },
+              1,
+              0,
+            ],
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        total_envios: 1,
+        entregados: 1,
+        tasa_entrega_termino: {
+          $cond: [
+            { $gt: ["$entregados", 0] },
+            { $divide: ["$en_termino", "$entregados"] },
+            0,
+          ],
+        },
+        incidencias: 1,
+      },
+    },
+  ];
+
+  const rows = await db.collection("envios").aggregate(pipeline).toArray();
+  const cliente = await db.collection("clientes").findOne(
+    { _id: clienteId },
+    { projection: { nombre: 1, tipo: 1 } },
+  );
+
+  return {
+    cliente_id: clienteId,
+    cliente: cliente?.nombre ?? null,
+    periodo: { anio, mes, desde: inicio, hasta: fin },
+    ...(rows[0] ?? {
+      total_envios: 0,
+      entregados: 0,
+      tasa_entrega_termino: 0,
+      incidencias: 0,
+    }),
+  };
+}
+
+/**
+ * TP1-4d: repartidores con mayor tasa de entrega exitosa al primer intento (últimos N días).
+ */
+export async function repartidoresMayorTasaPrimerIntento(db, dias = 30, limite = 10) {
+  const desde = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+
+  const pipeline = [
+    {
+      $match: {
+        estado: "entregado",
+        timestamp: { $gte: desde },
+        repartidor_id: { $exists: true, $ne: null },
+      },
+    },
+    {
+      $group: {
+        _id: {
+          repartidor_id: "$repartidor_id",
+          codigo_seguimiento: "$codigo_seguimiento",
+        },
+        max_intento: { $max: { $ifNull: ["$intento_numero", 1] } },
+      },
+    },
+    {
+      $group: {
+        _id: "$_id.repartidor_id",
+        entregas_totales: { $sum: 1 },
+        primer_intento_exitoso: {
+          $sum: { $cond: [{ $lte: ["$max_intento", 1] }, 1, 0] },
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        repartidor_id: "$_id",
+        entregas_totales: 1,
+        primer_intento_exitoso: 1,
+        tasa_primer_intento: {
+          $cond: [
+            { $gt: ["$entregas_totales", 0] },
+            { $divide: ["$primer_intento_exitoso", "$entregas_totales"] },
+            0,
+          ],
+        },
+      },
+    },
+    { $sort: { tasa_primer_intento: -1, entregas_totales: -1 } },
+    { $limit: limite },
+  ];
+
+  const rows = await db.collection("eventos_tracking").aggregate(pipeline).toArray();
+  const ids = rows.map((r) => r.repartidor_id);
+  const reps = await db
+    .collection("repartidores")
+    .find({ $or: [{ _id: { $in: ids } }, { codigo: { $in: ids } }] })
+    .project({ nombre: 1, codigo: 1 })
+    .toArray();
+  const porId = new Map(reps.flatMap((r) => [[String(r._id), r], [r.codigo, r]]));
+
+  return rows.map((r) => ({
+    ...r,
+    nombre: porId.get(String(r.repartidor_id))?.nombre ?? null,
+    tasa_primer_intento_pct: Math.round(r.tasa_primer_intento * 10000) / 100,
+  }));
+}
+
+/** TP1-4e: depósitos con ocupación superior al 85% (datos maestros MongoDB) */
+export async function depositosOcupacionSuperior85(db, umbral = 0.85) {
+  return db
+    .collection("depositos")
+    .find({
+      $expr: {
+        $gt: [
+          { $divide: ["$paquetes_stock_actual", "$capacidad_max"] },
+          umbral,
+        ],
+      },
+    })
+    .project({
+      nombre: 1,
+      ciudad: 1,
+      capacidad_max: 1,
+      paquetes_stock_actual: 1,
+      ratio_ocupacion: {
+        $divide: ["$paquetes_stock_actual", "$capacidad_max"],
+      },
+    })
+    .toArray();
+}
+
+/** Crea índices recomendados para las consultas frecuentes (TP1-3) */
+export async function crearIndicesMongo(db) {
+  await db.collection("envios").createIndexes([
+    { key: { codigo_seguimiento: 1 }, name: "idx_codigo_seguimiento" },
+    {
+      key: { estado_actual: 1, fecha_estimada_entrega: 1 },
+      name: "idx_estado_fecha_estimada",
+    },
+    {
+      key: { cliente_remitente_id: 1, fecha_creacion: 1 },
+      name: "idx_cliente_fecha_creacion",
+    },
+  ]);
+  await db.collection("eventos_tracking").createIndexes([
+    { key: { codigo_seguimiento: 1, timestamp: 1 }, name: "idx_codigo_timestamp" },
+    { key: { repartidor_id: 1, timestamp: 1 }, name: "idx_repartidor_timestamp" },
+  ]);
+  return [
+    "idx_codigo_seguimiento → historial y búsqueda por código",
+    "idx_estado_fecha_estimada → envíos demorados no entregados",
+    "idx_cliente_fecha_creacion → reporte mensual corporativo",
+    "idx_codigo_timestamp → historial ordenado por envío",
+    "idx_repartidor_timestamp → tasa de entrega al primer intento",
+  ];
+}

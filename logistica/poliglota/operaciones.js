@@ -41,6 +41,9 @@ import {
   vaciarColasCompletadas,
   liberarReserva,
   listarDepositosConCola,
+  encolarEnvio,
+  alertarSiSuperaUmbral,
+  ZSET_COLA_DESPACHO,
 } from "../redis/operaciones.js";
 
 function msDesde(t0) {
@@ -93,6 +96,12 @@ export async function dashboardOperativo(ctx, opts = {}) {
   }
   const tiempoNeo4jMs = msDesde(tNeo);
 
+  const alertasStream = [];
+  for (const crit of criticosRedis) {
+    const alerta = await alertarSiSuperaUmbral(ctx.redis, crit.depositoId, umbral);
+    if (alerta) alertasStream.push(alerta);
+  }
+
   return {
     operacion: "OP-1",
     descripcion: "Dashboard operativo en tiempo real",
@@ -102,6 +111,7 @@ export async function dashboardOperativo(ctx, opts = {}) {
       posiciones,
       colas_despacho: colas,
       depositos_ocupacion_critica: criticosRedis,
+      alertas_stream: alertasStream,
     },
     mongodb: {
       envios_demorados: demorados,
@@ -136,7 +146,33 @@ export async function asignacionInteligenteEnvio(ctx, params) {
     );
   }
 
+  const depositoId =
+    envio.deposito_actual ?? envio.deposito_actual_nombre ?? null;
+  const urgencia = envio.tipo_envio === "express" ? 10 : 5;
+  const prioridadScore = urgencia * 1e6 + Date.now() / 1000;
+
   const tRedis = Date.now();
+  let colaInfo = null;
+
+  if (depositoId) {
+    await encolarEnvio(ctx.redis, depositoId, codigo, prioridadScore);
+    const colaKey = ZSET_COLA_DESPACHO(depositoId);
+    const top = await ctx.redis.zRange(colaKey, 0, 0, { REV: true });
+    colaInfo = { deposito: depositoId, prioridad: prioridadScore, primero_en_cola: top[0] ?? null };
+
+    if (top[0] && top[0] !== codigo) {
+      return {
+        operacion: "OP-2",
+        asignado: false,
+        motivo: "Hay envíos de mayor prioridad en la cola de despacho (ZSET)",
+        cola: colaInfo,
+        envio: { codigo_seguimiento: codigo, deposito: depositoId },
+        tiempos_ms: { redis: msDesde(tRedis), total: msDesde(t0) },
+      };
+    }
+    await ctx.redis.zRem(colaKey, codigo);
+  }
+
   const candidatos = await repartidoresDisponiblesCercanos(
     ctx.redis,
     zona,
@@ -172,11 +208,15 @@ export async function asignacionInteligenteEnvio(ctx, params) {
   const tiempoRedisMs = msDesde(tRedis);
 
   if (!repartidorId) {
+    if (depositoId) {
+      await encolarEnvio(ctx.redis, depositoId, codigo, prioridadScore);
+    }
     return {
       operacion: "OP-2",
       asignado: false,
       motivo: "No se pudo reservar repartidor (SETNX / ya en ruta)",
       candidatos,
+      cola: colaInfo,
       tiempos_ms: { redis: tiempoRedisMs, total: msDesde(t0) },
     };
   }
@@ -222,6 +262,7 @@ export async function asignacionInteligenteEnvio(ctx, params) {
       reserva_redis: reservaKey,
       candidatos_evaluados: candidatos,
     },
+    redis: { cola_despacho: colaInfo },
     neo4j: { ruta_optima_depositos: rutaNeo, origen, destino },
     mongodb: { evento_asignacion: evento },
     tiempos_ms: {
