@@ -47,15 +47,6 @@ npm run seed
 npm run consultas
 ```
 
-**Consultas TP1 (1.ª entrega):**
-
-```bash
-npm run consultas:tp1
-# Ejemplo no interactivo:
-node logistica/cli/consultas-tp1.js --mongo --consulta a --codigo TRK-TEST-001
-node logistica/cli/consultas-tp1.js --neo4j --consulta d
-```
-
 **Operaciones políglotas por CLI:**
 
 ```bash
